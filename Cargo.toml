@@ -1,0 +1,10 @@
+[package]
+name = "patch-pilers"
+version = "0.1.0"
+authors = ["Chris West (Faux) <git@goeswhere.com>"]
+edition = "2018"
+
+[dependencies]
+anyhow = "1"
+clap = "2.33"
+git2 = "0.13"
