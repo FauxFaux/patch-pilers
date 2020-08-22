@@ -1,10 +1,15 @@
+use anyhow::anyhow;
+use anyhow::bail;
 use anyhow::ensure;
 use anyhow::Result;
 use clap::Arg;
 use clap::SubCommand;
+use git2::BranchType;
 use git2::Delta;
+use git2::ErrorCode;
 use git2::Index;
 use git2::Oid;
+use regex::Regex;
 
 fn main() -> Result<()> {
     let matches = clap::App::new("patch-pilers")
@@ -36,15 +41,39 @@ fn main() -> Result<()> {
 }
 
 fn add_renames(repo: &git2::Repository, since: &str) -> Result<()> {
+    let local_branch_name = repo.head()?;
+    let local_branch_name = match local_branch_name.name() {
+        Some(name) if name.starts_with("refs/heads/") => &name["refs/heads/".len()..],
+        other => bail!("not on local branch: {:?}", other),
+    };
+
+    let new_branch_name = format!("pp-rename/{}", local_branch_name);
+    match repo.find_branch(&new_branch_name, BranchType::Local) {
+        Err(e) if e.code() == ErrorCode::NotFound => (),
+        Err(e) => bail!(e),
+        Ok(_) => bail!("temporary branch already exists: {:?}", new_branch_name),
+    };
+
+    let rename_regex = Regex::new("^[a-z]+:")?;
+
+    let bottom = repo.revparse_single(since)?;
+
+    repo.branch(&new_branch_name, &bottom.peel_to_commit()?, false)?;
+
     let mut walk = repo.revwalk()?;
     walk.push_head()?;
-    walk.hide(repo.revparse_single(since)?.id())?;
+    walk.hide(bottom.id())?;
     let mut commits = walk.collect::<Result<Vec<Oid>, git2::Error>>()?;
     commits.reverse();
 
+    let mut parent = bottom.peel_to_commit()?;
+
     for id in commits {
         let commit = repo.find_commit(id)?;
-        ensure!(1 == commit.parent_count(), "");
+        ensure!(
+            1 == commit.parent_count(),
+            "there are merges in the history, I give up"
+        );
         println!("{:?} {:?}", id, commit.message());
         let parent_tree = commit.parent(0)?.tree()?;
 
@@ -89,7 +118,32 @@ fn add_renames(repo: &git2::Repository, since: &str) -> Result<()> {
             index.add(&taken)?;
             let new_tree = index.write_tree_to(repo)?;
             println!("{:?}", new_tree);
+
+            let old_message = commit.message().ok_or(anyhow!("invalid commit message"))?;
+            let message = rename_regex.replace(old_message, "chore(rename): ");
+
+            let commit_id = repo.commit(
+                Some(&format!("refs/heads/{}", new_branch_name)),
+                &commit.author(),
+                &commit.committer(),
+                &message,
+                &repo.find_tree(new_tree)?,
+                &[&parent],
+            )?;
+
+            parent = repo.find_commit(commit_id)?;
         }
+
+        let commit_id = repo.commit(
+            Some(&format!("refs/heads/{}", new_branch_name)),
+            &commit.author(),
+            &commit.committer(),
+            &commit.message().ok_or(anyhow!("invalid commit message"))?,
+            &commit.tree()?,
+            &[&parent],
+        )?;
+
+        parent = repo.find_commit(commit_id)?;
     }
     Ok(())
 }
