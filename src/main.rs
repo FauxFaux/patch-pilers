@@ -2,8 +2,9 @@ use anyhow::ensure;
 use anyhow::Result;
 use clap::Arg;
 use clap::SubCommand;
+use git2::Delta;
+use git2::Index;
 use git2::Oid;
-use git2::{Delta, Index, IndexEntry};
 
 fn main() -> Result<()> {
     let matches = clap::App::new("patch-pilers")
@@ -75,17 +76,7 @@ fn add_renames(repo: &git2::Repository, since: &str) -> Result<()> {
             );
 
             let old_path = deleted.old_file().path().expect("deletes have paths");
-            let new_path = added.new_file().path().expect("adds have paths");
-
-            if false {
-                let mut builder = repo.treebuilder(Some(&parent_tree))?;
-                let old = builder.get(old_path)?.expect("it should be there");
-                let old_id = old.id();
-                let old_mode = old.filemode();
-                drop(old);
-                builder.insert(new_path, old_id, old_mode)?;
-                let new_tree = builder.write()?;
-            }
+            let new_path = added.new_file().path_bytes().expect("added has path");
 
             let mut index = Index::new()?;
             index.read_tree(&parent_tree)?;
@@ -94,11 +85,7 @@ fn add_renames(repo: &git2::Repository, since: &str) -> Result<()> {
                 .get_path(old_path, stage)
                 .expect("old path must exist");
             index.remove(old_path, stage)?;
-            taken.path = added
-                .new_file()
-                .path_bytes()
-                .expect("added has path")
-                .to_vec();
+            taken.path = new_path.to_vec();
             index.add(&taken)?;
             let new_tree = index.write_tree_to(repo)?;
             println!("{:?}", new_tree);
