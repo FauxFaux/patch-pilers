@@ -3,6 +3,7 @@ use clap::Arg;
 use clap::SubCommand;
 
 mod add_renames;
+mod multi_status;
 
 fn main() -> Result<()> {
     let matches = clap::App::new("patch-pilers")
@@ -20,6 +21,8 @@ fn main() -> Result<()> {
                     .takes_value(true)
                     .required(true),
             ),
+        ).subcommand(
+            SubCommand::with_name("multi-status")
         )
         .get_matches();
 
@@ -29,6 +32,7 @@ fn main() -> Result<()> {
         ("add-renames", Some(child)) => {
             add_renames::add_renames(&repo, child.value_of("since").expect("required"))
         }
+        ("multi-status", Some(child)) => multi_status::multi_status(&repo),
         _ => unreachable!("subcommands are required"),
     }
 }
