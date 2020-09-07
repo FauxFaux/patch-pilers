@@ -4,12 +4,15 @@ use anyhow::Result;
 pub fn multi_status(repo: &git2::Repository) -> Result<()> {
     for branch in repo.branches(None)? {
         let (branch, _type) = branch?;
-        let name = branch.name()?.ok_or_else(|| {
-            anyhow!(
-                "utf-8 branch names please, none of this {:?}",
-                branch.name_bytes().map(|x| String::from_utf8_lossy(x))
-            )
-        })?.to_string();
+        let name = branch
+            .name()?
+            .ok_or_else(|| {
+                anyhow!(
+                    "utf-8 branch names please, none of this {:?}",
+                    branch.name_bytes().map(|x| String::from_utf8_lossy(x))
+                )
+            })?
+            .to_string();
         let branch_commit = branch.into_reference().peel_to_commit()?;
 
         let branch = repo.revparse(&name)?;
